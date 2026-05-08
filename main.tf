@@ -414,6 +414,39 @@ resource "kubernetes_service_v1" "springboot" {
   depends_on = [kubernetes_deployment_v1.springboot]
 }
 
+resource "kubernetes_horizontal_pod_autoscaler_v2" "springboot" {
+  count = var.deploy_workload && var.enable_springboot_hpa ? 1 : 0
+
+  metadata {
+    name      = "springboot"
+    namespace = kubernetes_namespace_v1.springboot[0].metadata[0].name
+  }
+
+  spec {
+    min_replicas = var.springboot_hpa_min_replicas
+    max_replicas = var.springboot_hpa_max_replicas
+
+    scale_target_ref {
+      api_version = "apps/v1"
+      kind        = "Deployment"
+      name        = kubernetes_deployment_v1.springboot[0].metadata[0].name
+    }
+
+    metric {
+      type = "Resource"
+      resource {
+        name = "cpu"
+        target {
+          type                = "Utilization"
+          average_utilization = var.springboot_hpa_target_cpu_utilization_percentage
+        }
+      }
+    }
+  }
+
+  depends_on = [kubernetes_deployment_v1.springboot]
+}
+
 resource "stackit_observability_scrapeconfig" "springboot_metrics" {
   count = var.observability_enabled && var.enable_springboot_metrics_scrape && var.deploy_workload ? 1 : 0
 

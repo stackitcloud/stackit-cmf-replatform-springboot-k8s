@@ -211,6 +211,30 @@ variable "springboot_replicas" {
   default     = 1
 }
 
+variable "enable_springboot_hpa" {
+  type        = bool
+  description = "Enable Horizontal Pod Autoscaler for the Spring Boot deployment"
+  default     = false
+}
+
+variable "springboot_hpa_min_replicas" {
+  type        = number
+  description = "Minimum Spring Boot replicas when HPA is enabled"
+  default     = 1
+}
+
+variable "springboot_hpa_max_replicas" {
+  type        = number
+  description = "Maximum Spring Boot replicas when HPA is enabled"
+  default     = 3
+}
+
+variable "springboot_hpa_target_cpu_utilization_percentage" {
+  type        = number
+  description = "Target average CPU utilization percentage for Spring Boot HPA"
+  default     = 70
+}
+
 variable "app_subdomain" {
   type        = string
   description = "Subdomain label for ingress hostname"

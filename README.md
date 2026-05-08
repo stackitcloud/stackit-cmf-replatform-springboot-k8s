@@ -9,6 +9,7 @@ Runnable replatform example for STACKIT: migrate a Spring Boot workload to SKE w
 - DNS zone and external-dns integration
 - STACKIT Observability instance
 - Spring Boot Deployment + Service (LoadBalancer)
+- Optional Horizontal Pod Autoscaler (HPA) for Spring Boot
 - Metrics exporter sidecar on port 9090
 - Observability scrape config for Spring Boot metrics
 - Grafana dashboard import
@@ -55,7 +56,33 @@ Then edit `env.tfvars`.
 - `region`, `availability_zone`
 - `node_pool_machine_type`
 - `springboot_image`
+- `enable_springboot_hpa`, `springboot_hpa_*`
 - `enable_load_generator`, `load_profile`
+
+## Kubernetes rightsizing options
+
+For replatformed workloads on SKE, rightsizing can be applied at multiple layers:
+
+- Pod layer: adjust requests/limits and optionally enable HPA.
+- Node pool layer: tune node pool min/max and machine type.
+- Storage layer: choose suitable storage classes for persistence characteristics.
+
+### Enable HPA (optional)
+
+Set in `env.tfvars`:
+
+```hcl
+enable_springboot_hpa                         = true
+springboot_hpa_min_replicas                   = 1
+springboot_hpa_max_replicas                   = 5
+springboot_hpa_target_cpu_utilization_percentage = 70
+```
+
+Then apply:
+
+```bash
+terraform apply -var-file=env.tfvars
+```
 
 ## 2) Deploy
 
