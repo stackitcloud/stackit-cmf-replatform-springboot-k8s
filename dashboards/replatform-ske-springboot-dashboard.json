@@ -1,0 +1,90 @@
+{
+  "id": null,
+  "uid": "replatform-ske-springboot-workload",
+  "title": "Replatform Spring Boot Workload Overview",
+  "tags": ["springboot", "workload", "replatform"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Cluster CPU Usage (cores)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "__PROM_UID__"
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "expr": "sum(rate(node_cpu_seconds_total{mode!=\"idle\"}[5m])) or vector(0)",
+          "legendFormat": "cluster cpu",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Cluster Memory Usage (%)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "__PROM_UID__"
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "expr": "(1 - (sum(node_memory_MemAvailable_bytes) / sum(node_memory_MemTotal_bytes))) * 100 or vector(0)",
+          "legendFormat": "memory %",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Running Pods (springboot namespace)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "__PROM_UID__"
+      },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "expr": "sum(kube_pod_status_phase{phase=\"Running\",namespace=\"springboot\"}) or sum(up{job=\"cmf-rpltf-springboot-metrics\"}) or vector(0)",
+          "legendFormat": "running pods",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Spring Boot Request Count",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "__PROM_UID__"
+      },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 16 },
+      "targets": [
+        {
+          "expr": "max(springboot_legacy_counter{name=\"counter.status.200.star-star\"}) or vector(0)",
+          "legendFormat": "total 200 requests",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(springboot_legacy_counter{name=\"counter.status.200.star-star\"}[5m])) or vector(0)",
+          "legendFormat": "requests/sec (5m)",
+          "refId": "B"
+        },
+        {
+          "expr": "max(springboot_legacy_counter{name=\"counter.status.404.star-star\"}) or vector(0)",
+          "legendFormat": "total 404 requests",
+          "refId": "C"
+        }
+      ]
+    }
+  ]
+}
