@@ -119,34 +119,90 @@ resource "stackit_observability_alertgroup" "ske_baseline" {
   name        = "${var.ske_cluster_name}-baseline"
   interval    = "60s"
 
-  rules = [
-    {
-      alert      = "SKEClusterNodeNotReady"
-      expression = "kube_node_status_condition{condition=\"Ready\",status=\"false\"} > 0"
-      for        = "5m"
-      labels = {
-        severity = "critical"
-        scope    = "ske"
+  rules = concat(
+    [
+      {
+        alert      = "SKEClusterNodeNotReady"
+        expression = "kube_node_status_condition{condition=\"Ready\",status=\"false\"} > 0"
+        for        = "5m"
+        labels = {
+          severity = "critical"
+          scope    = "ske"
+        }
+        annotations = {
+          summary     = "At least one SKE node is not Ready"
+          description = "A Kubernetes node in the cluster reports Ready=false for at least 5 minutes."
+        }
+      },
+      {
+        alert      = "SpringbootPodCrashLoopRisk"
+        expression = "sum(increase(kube_pod_container_status_restarts_total{namespace=\"${var.k8s_namespace}\"}[10m])) > 3"
+        for        = "10m"
+        labels = {
+          severity = "warning"
+          scope    = "springboot"
+        }
+        annotations = {
+          summary     = "Spring Boot pods restart repeatedly"
+          description = "Pod restart count in namespace ${var.k8s_namespace} increased significantly in the last 10 minutes."
+        }
       }
-      annotations = {
-        summary     = "At least one SKE node is not Ready"
-        description = "A Kubernetes node in the cluster reports Ready=false for at least 5 minutes."
+    ],
+    var.enable_postgres_flex && var.enable_postgres_flex_metrics_scrape ? [
+      {
+        alert      = "PostgresFlexExporterDown"
+        expression = "max(pg_up) == 0"
+        for        = "5m"
+        labels = {
+          severity = "critical"
+          scope    = "postgres-flex"
+        }
+        annotations = {
+          summary     = "PostgreSQL Flex exporter cannot reach the database"
+          description = "pg_up is 0 for at least 5 minutes."
+        }
+      },
+      {
+        alert      = "PostgresFlexConnectionLimitWarning"
+        expression = "(sum(pg_stat_activity_count{state=\"active\"}) / max(pg_settings_max_connections)) > 0.8"
+        for        = "10m"
+        labels = {
+          severity = "warning"
+          scope    = "postgres-flex"
+        }
+        annotations = {
+          summary     = "PostgreSQL Flex active connections exceed 80%"
+          description = "Active database connections are above 80% of max_connections for at least 10 minutes."
+        }
+      },
+      {
+        alert      = "PostgresFlexCacheHitRatioLow"
+        expression = "(sum(rate(pg_stat_database_blks_hit[5m])) / (sum(rate(pg_stat_database_blks_hit[5m])) + sum(rate(pg_stat_database_blks_read[5m])))) < 0.95"
+        for        = "15m"
+        labels = {
+          severity = "warning"
+          scope    = "postgres-flex"
+        }
+        annotations = {
+          summary     = "PostgreSQL Flex cache hit ratio is below 95%"
+          description = "The cache hit ratio stayed below 95% for at least 15 minutes."
+        }
+      },
+      {
+        alert      = "PostgresFlexTempFileUsage"
+        expression = "sum(rate(pg_stat_database_temp_bytes[5m])) > 0"
+        for        = "15m"
+        labels = {
+          severity = "warning"
+          scope    = "postgres-flex"
+        }
+        annotations = {
+          summary     = "PostgreSQL Flex temp file usage detected"
+          description = "Temporary files are continuously written for at least 15 minutes."
+        }
       }
-    },
-    {
-      alert      = "SpringbootPodCrashLoopRisk"
-      expression = "sum(increase(kube_pod_container_status_restarts_total{namespace=\"${var.k8s_namespace}\"}[10m])) > 3"
-      for        = "10m"
-      labels = {
-        severity = "warning"
-        scope    = "springboot"
-      }
-      annotations = {
-        summary     = "Spring Boot pods restart repeatedly"
-        description = "Pod restart count in namespace ${var.k8s_namespace} increased significantly in the last 10 minutes."
-      }
-    }
-  ]
+    ] : []
+  )
 
   depends_on = [time_sleep.observability_ready]
 }

@@ -103,6 +103,10 @@ When enabled, Terraform creates PostgreSQL Flex (`stackit_postgresflex_instance`
 
 ACL is intentionally strict by default: only CIDRs in `postgres_flex_target_app_acl_cidrs` (or legacy `postgres_flex_acl`) are allowed.
 
+If `enable_observability_alerts = true` and PostgreSQL Flex metrics scraping is enabled,
+the baseline alert group also includes PostgreSQL-focused alerts for exporter availability,
+connection saturation, cache-hit ratio, and temp file usage.
+
 ## VM PostgreSQL to PostgreSQL Flex migration job
 
 To migrate source data from the VM-based PostgreSQL (for example from the Rehost setup), enable:

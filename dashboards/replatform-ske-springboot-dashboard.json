@@ -89,7 +89,7 @@
     {
       "id": 5,
       "type": "timeseries",
-      "title": "PostgreSQL Flex Exporter Availability and Connections",
+      "title": "PostgreSQL Flex Availability and Connection Saturation (%)",
       "datasource": {
         "type": "prometheus",
         "uid": "__PROM_UID__"
@@ -97,13 +97,13 @@
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
       "targets": [
         {
-          "expr": "max(pg_up) or vector(0)",
+          "expr": "max(pg_up{node_type=\"primary\"}) or vector(0)",
           "legendFormat": "pg_up",
           "refId": "A"
         },
         {
-          "expr": "sum(pg_stat_activity_count) or vector(0)",
-          "legendFormat": "active connections",
+          "expr": "100 * (sum(pg_stat_activity_count{state=\"active\",node_type=\"primary\"}) / max(pg_settings_max_connections{node_type=\"primary\"})) or vector(0)",
+          "legendFormat": "active connection saturation %",
           "refId": "B"
         }
       ]
@@ -119,13 +119,52 @@
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
       "targets": [
         {
-          "expr": "sum(increase(pg_stat_database_xact_commit[5m])) or vector(0)",
+          "expr": "sum(increase(pg_stat_database_xact_commit{node_type=\"primary\"}[5m])) or vector(0)",
           "legendFormat": "commits",
           "refId": "A"
         },
         {
-          "expr": "sum(increase(pg_stat_database_xact_rollback[5m])) or vector(0)",
+          "expr": "sum(increase(pg_stat_database_xact_rollback{node_type=\"primary\"}[5m])) or vector(0)",
           "legendFormat": "rollbacks",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "PostgreSQL Flex Cache Hit Ratio (%)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "__PROM_UID__"
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 32 },
+      "targets": [
+        {
+          "expr": "100 * sum(rate(pg_stat_database_blks_hit{node_type=\"primary\"}[5m])) / (sum(rate(pg_stat_database_blks_hit{node_type=\"primary\"}[5m])) + sum(rate(pg_stat_database_blks_read{node_type=\"primary\"}[5m]))) or vector(0)",
+          "legendFormat": "cache hit ratio %",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "PostgreSQL Flex Temp Bytes and Locks",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "__PROM_UID__"
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 32 },
+      "targets": [
+        {
+          "expr": "sum(rate(pg_stat_database_temp_bytes{node_type=\"primary\"}[5m])) or vector(0)",
+          "legendFormat": "temp bytes/sec",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(pg_locks_count{node_type=\"primary\"}) or vector(0)",
+          "legendFormat": "locks",
           "refId": "B"
         }
       ]

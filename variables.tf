@@ -202,7 +202,7 @@ variable "postgres_flex_instance_name" {
 variable "postgres_flex_version" {
   type        = string
   description = "PostgreSQL Flex version"
-  default     = "17.0"
+  default     = "17"
 }
 
 variable "postgres_flex_backup_schedule" {
@@ -249,7 +249,7 @@ variable "include_source_postgres_host_in_temp_acl" {
 variable "postgres_flex_cpu" {
   type        = number
   description = "vCPU size of PostgreSQL Flex instance"
-  default     = 1
+  default     = 2
 }
 
 variable "postgres_flex_ram" {
@@ -261,7 +261,7 @@ variable "postgres_flex_ram" {
 variable "postgres_flex_storage_class" {
   type        = string
   description = "Storage class for PostgreSQL Flex"
-  default     = "premium-perf6-postgresql"
+  default     = "premium-perf6-stackit"
 }
 
 variable "postgres_flex_storage_size" {
@@ -279,7 +279,7 @@ variable "postgres_flex_app_username" {
 variable "postgres_flex_app_roles" {
   type        = set(string)
   description = "Roles for the PostgreSQL Flex application user"
-  default     = ["readWrite"]
+  default     = ["login"]
 }
 
 variable "postgres_flex_target_database" {
