@@ -23,12 +23,12 @@ resource "stackit_resourcemanager_project" "cmf_project" {
 }
 
 locals {
-  effective_project_id = var.create_project ? stackit_resourcemanager_project.cmf_project[0].project_id : (var.project_id != "" ? var.project_id : local.bootstrap_project_id)
-  create_dns_with_random_suffix = var.dns_enabled && var.create_dns_zone && strcontains(var.dns_zone_name, "{rand}")
-  effective_dns_zone_name       = local.create_dns_with_random_suffix ? replace(var.dns_zone_name, "{rand}", tostring(random_integer.dns_suffix[0].result)) : var.dns_zone_name
-  effective_dns_zone_display    = local.create_dns_with_random_suffix ? replace(var.dns_zone_display_name, "{rand}", tostring(random_integer.dns_suffix[0].result)) : var.dns_zone_display_name
-  effective_dns_zones           = var.dns_enabled ? (var.create_dns_zone ? [stackit_dns_zone.cmf_zone[0].dns_name] : [local.effective_dns_zone_name]) : []
-  app_fqdn                      = "${var.app_subdomain}.${local.effective_dns_zone_name}"
+  effective_project_id                = var.create_project ? stackit_resourcemanager_project.cmf_project[0].project_id : (var.project_id != "" ? var.project_id : local.bootstrap_project_id)
+  create_dns_with_random_suffix       = var.dns_enabled && var.create_dns_zone && strcontains(var.dns_zone_name, "{rand}")
+  effective_dns_zone_name             = local.create_dns_with_random_suffix ? replace(var.dns_zone_name, "{rand}", tostring(random_integer.dns_suffix[0].result)) : var.dns_zone_name
+  effective_dns_zone_display          = local.create_dns_with_random_suffix ? replace(var.dns_zone_display_name, "{rand}", tostring(random_integer.dns_suffix[0].result)) : var.dns_zone_display_name
+  effective_dns_zones                 = var.dns_enabled ? (var.create_dns_zone ? [stackit_dns_zone.cmf_zone[0].dns_name] : [local.effective_dns_zone_name]) : []
+  app_fqdn                            = "${var.app_subdomain}.${local.effective_dns_zone_name}"
   effective_observability_instance_id = var.observability_enabled ? (var.create_observability_instance ? stackit_observability_instance.replatform_obs[0].instance_id : var.existing_observability_instance_id) : null
   observability_integration_enabled   = var.observability_enabled && (var.create_observability_instance || var.existing_observability_instance_id != "")
 
@@ -64,7 +64,25 @@ locals {
     max_requests = var.load_generator_max_requests_per_cycle
     min_pause    = var.load_generator_min_pause_seconds
     max_pause    = var.load_generator_max_pause_seconds
-    } : local.load_profile_presets[var.load_profile]
+  } : local.load_profile_presets[var.load_profile]
+
+  postgres_flex_host     = try(stackit_postgresflex_user.app[0].host, "")
+  postgres_flex_port     = try(stackit_postgresflex_user.app[0].port, 5432)
+  postgres_flex_password = try(stackit_postgresflex_user.app[0].password, "")
+  postgres_flex_jdbc_url = var.enable_postgres_flex ? "jdbc:postgresql://${local.postgres_flex_host}:${local.postgres_flex_port}/${var.postgres_flex_target_database}" : ""
+
+  source_postgres_host_is_ipv4 = can(regex("^([0-9]{1,3}\\.){3}[0-9]{1,3}$", var.source_postgres_host))
+  source_postgres_host_cidr    = local.source_postgres_host_is_ipv4 ? "${var.source_postgres_host}/32" : ""
+
+  postgres_flex_effective_app_acl_cidrs = length(var.postgres_flex_acl) > 0 ? var.postgres_flex_acl : var.postgres_flex_target_app_acl_cidrs
+  postgres_flex_effective_temp_acl_cidrs = distinct(compact(concat(
+    var.postgres_flex_temp_migration_acl_cidrs,
+    var.include_source_postgres_host_in_temp_acl ? [local.source_postgres_host_cidr] : []
+  )))
+  postgres_flex_effective_acl_cidrs = distinct(compact(concat(
+    local.postgres_flex_effective_app_acl_cidrs,
+    local.postgres_flex_effective_temp_acl_cidrs
+  )))
 }
 
 resource "random_integer" "dns_suffix" {
@@ -143,6 +161,36 @@ resource "stackit_dns_zone" "cmf_zone" {
   type          = "primary"
 }
 
+resource "stackit_postgresflex_instance" "app" {
+  count = var.enable_postgres_flex ? 1 : 0
+
+  project_id      = local.effective_project_id
+  name            = var.postgres_flex_instance_name
+  acl             = local.postgres_flex_effective_acl_cidrs
+  backup_schedule = var.postgres_flex_backup_schedule
+  version         = var.postgres_flex_version
+  replicas        = var.postgres_flex_replicas
+
+  flavor = {
+    cpu = var.postgres_flex_cpu
+    ram = var.postgres_flex_ram
+  }
+
+  storage = {
+    class = var.postgres_flex_storage_class
+    size  = var.postgres_flex_storage_size
+  }
+}
+
+resource "stackit_postgresflex_user" "app" {
+  count = var.enable_postgres_flex ? 1 : 0
+
+  project_id  = local.effective_project_id
+  instance_id = stackit_postgresflex_instance.app[0].instance_id
+  username    = var.postgres_flex_app_username
+  roles       = var.postgres_flex_app_roles
+}
+
 resource "stackit_ske_cluster" "replatform" {
   project_id             = local.effective_project_id
   name                   = var.ske_cluster_name
@@ -198,6 +246,44 @@ resource "kubernetes_namespace_v1" "springboot" {
   depends_on = [stackit_ske_kubeconfig.replatform]
 }
 
+resource "kubernetes_secret_v1" "springboot_db" {
+  count = var.deploy_workload && var.enable_postgres_flex ? 1 : 0
+
+  metadata {
+    name      = "springboot-db-credentials"
+    namespace = kubernetes_namespace_v1.springboot[0].metadata[0].name
+  }
+
+  data = {
+    SPRING_DATASOURCE_URL      = local.postgres_flex_jdbc_url
+    SPRING_DATASOURCE_USERNAME = var.postgres_flex_app_username
+    SPRING_DATASOURCE_PASSWORD = local.postgres_flex_password
+  }
+
+  type = "Opaque"
+
+  depends_on = [stackit_postgresflex_user.app]
+}
+
+resource "kubernetes_secret_v1" "source_postgres" {
+  count = var.deploy_workload && var.enable_postgres_flex && var.deploy_postgres_migration_job ? 1 : 0
+
+  metadata {
+    name      = "source-postgres-credentials"
+    namespace = kubernetes_namespace_v1.springboot[0].metadata[0].name
+  }
+
+  data = {
+    SOURCE_HOST     = var.source_postgres_host
+    SOURCE_PORT     = tostring(var.source_postgres_port)
+    SOURCE_DATABASE = var.source_postgres_database
+    SOURCE_USERNAME = var.source_postgres_username
+    SOURCE_PASSWORD = var.source_postgres_password
+  }
+
+  type = "Opaque"
+}
+
 resource "kubernetes_deployment_v1" "springboot" {
   count = var.deploy_workload ? 1 : 0
 
@@ -233,6 +319,24 @@ resource "kubernetes_deployment_v1" "springboot" {
           env {
             name  = "JAVA_TOOL_OPTIONS"
             value = "-Xms128m -Xmx512m"
+          }
+
+          dynamic "env" {
+            for_each = var.enable_postgres_flex ? {
+              SPRING_DATASOURCE_URL      = "SPRING_DATASOURCE_URL"
+              SPRING_DATASOURCE_USERNAME = "SPRING_DATASOURCE_USERNAME"
+              SPRING_DATASOURCE_PASSWORD = "SPRING_DATASOURCE_PASSWORD"
+            } : {}
+
+            content {
+              name = env.key
+              value_from {
+                secret_key_ref {
+                  name = kubernetes_secret_v1.springboot_db[0].metadata[0].name
+                  key  = env.value
+                }
+              }
+            }
           }
 
           port {
@@ -281,6 +385,45 @@ resource "kubernetes_deployment_v1" "springboot" {
             limits = {
               cpu    = "500m"
               memory = "1Gi"
+            }
+          }
+        }
+
+        dynamic "container" {
+          for_each = var.enable_postgres_flex && var.enable_postgres_flex_exporter ? [1] : []
+
+          content {
+            name  = "postgres-flex-exporter"
+            image = "quay.io/prometheuscommunity/postgres-exporter:v0.16.0"
+
+            env {
+              name  = "DATA_SOURCE_URI"
+              value = "${local.postgres_flex_host}:${local.postgres_flex_port}/${var.postgres_flex_target_database}?sslmode=require"
+            }
+
+            env {
+              name  = "DATA_SOURCE_USER"
+              value = var.postgres_flex_app_username
+            }
+
+            env {
+              name  = "DATA_SOURCE_PASS"
+              value = local.postgres_flex_password
+            }
+
+            port {
+              container_port = var.postgres_flex_exporter_port
+            }
+
+            resources {
+              requests = {
+                cpu    = "20m"
+                memory = "64Mi"
+              }
+              limits = {
+                cpu    = "200m"
+                memory = "256Mi"
+              }
             }
           }
         }
@@ -378,6 +521,160 @@ resource "kubernetes_deployment_v1" "springboot" {
   depends_on = [kubernetes_namespace_v1.springboot]
 }
 
+resource "kubernetes_job_v1" "postgres_migrate" {
+  count = var.deploy_workload && var.enable_postgres_flex && var.deploy_postgres_migration_job ? 1 : 0
+
+  metadata {
+    name      = "springboot-postgres-migrate"
+    namespace = kubernetes_namespace_v1.springboot[0].metadata[0].name
+  }
+
+  spec {
+    backoff_limit = 2
+
+    template {
+      metadata {
+        labels = {
+          app = "springboot-postgres-migrate"
+        }
+      }
+
+      spec {
+        restart_policy = "OnFailure"
+
+        container {
+          name  = "postgres-migration"
+          image = "postgres:17"
+
+          command = ["/bin/sh", "-c"]
+          args = [<<-EOT
+            set -euo pipefail
+
+            echo "Checking source PostgreSQL readiness..."
+            until pg_isready -h "$SOURCE_HOST" -p "$SOURCE_PORT" -U "$SOURCE_USERNAME" >/dev/null 2>&1; do
+              sleep 5
+            done
+
+            echo "Checking target PostgreSQL Flex readiness..."
+            until pg_isready -h "$TARGET_HOST" -p "$TARGET_PORT" -U "$TARGET_USERNAME" >/dev/null 2>&1; do
+              sleep 5
+            done
+
+            export PGPASSWORD="$SOURCE_PASSWORD"
+            pg_dump \
+              --host="$SOURCE_HOST" \
+              --port="$SOURCE_PORT" \
+              --username="$SOURCE_USERNAME" \
+              --dbname="$SOURCE_DATABASE" \
+              --format=custom \
+              --no-owner \
+              --no-privileges \
+              --file=/tmp/source.dump
+
+            export PGPASSWORD="$TARGET_PASSWORD"
+            pg_restore \
+              --host="$TARGET_HOST" \
+              --port="$TARGET_PORT" \
+              --username="$TARGET_USERNAME" \
+              --dbname="$TARGET_DATABASE" \
+              --clean \
+              --if-exists \
+              --no-owner \
+              --no-privileges \
+              /tmp/source.dump
+
+            echo "PostgreSQL migration job finished successfully."
+          EOT
+          ]
+
+          env {
+            name = "SOURCE_HOST"
+            value_from {
+              secret_key_ref {
+                name = kubernetes_secret_v1.source_postgres[0].metadata[0].name
+                key  = "SOURCE_HOST"
+              }
+            }
+          }
+
+          env {
+            name = "SOURCE_PORT"
+            value_from {
+              secret_key_ref {
+                name = kubernetes_secret_v1.source_postgres[0].metadata[0].name
+                key  = "SOURCE_PORT"
+              }
+            }
+          }
+
+          env {
+            name = "SOURCE_DATABASE"
+            value_from {
+              secret_key_ref {
+                name = kubernetes_secret_v1.source_postgres[0].metadata[0].name
+                key  = "SOURCE_DATABASE"
+              }
+            }
+          }
+
+          env {
+            name = "SOURCE_USERNAME"
+            value_from {
+              secret_key_ref {
+                name = kubernetes_secret_v1.source_postgres[0].metadata[0].name
+                key  = "SOURCE_USERNAME"
+              }
+            }
+          }
+
+          env {
+            name = "SOURCE_PASSWORD"
+            value_from {
+              secret_key_ref {
+                name = kubernetes_secret_v1.source_postgres[0].metadata[0].name
+                key  = "SOURCE_PASSWORD"
+              }
+            }
+          }
+
+          env {
+            name  = "TARGET_HOST"
+            value = local.postgres_flex_host
+          }
+
+          env {
+            name  = "TARGET_PORT"
+            value = tostring(local.postgres_flex_port)
+          }
+
+          env {
+            name  = "TARGET_DATABASE"
+            value = var.postgres_flex_target_database
+          }
+
+          env {
+            name  = "TARGET_USERNAME"
+            value = var.postgres_flex_app_username
+          }
+
+          env {
+            name  = "TARGET_PASSWORD"
+            value = local.postgres_flex_password
+          }
+        }
+      }
+    }
+  }
+
+  wait_for_completion = true
+
+  depends_on = [
+    stackit_postgresflex_user.app,
+    kubernetes_secret_v1.source_postgres,
+    kubernetes_deployment_v1.springboot
+  ]
+}
+
 resource "kubernetes_service_v1" "springboot" {
   count = var.deploy_workload ? 1 : 0
 
@@ -406,6 +703,17 @@ resource "kubernetes_service_v1" "springboot" {
       port        = var.springboot_metrics_exporter_port
       target_port = var.springboot_metrics_exporter_port
       protocol    = "TCP"
+    }
+
+    dynamic "port" {
+      for_each = var.enable_postgres_flex && var.enable_postgres_flex_exporter ? [1] : []
+
+      content {
+        name        = "postgres-metrics"
+        port        = var.postgres_flex_exporter_port
+        target_port = var.postgres_flex_exporter_port
+        protocol    = "TCP"
+      }
     }
 
     type = "LoadBalancer"
@@ -460,6 +768,23 @@ resource "stackit_observability_scrapeconfig" "springboot_metrics" {
   scheme          = "http"
   scrape_interval = var.springboot_metrics_scrape_interval
   scrape_timeout  = var.springboot_metrics_scrape_timeout
+
+  depends_on = [terraform_data.workload_endpoint_ready]
+}
+
+resource "stackit_observability_scrapeconfig" "postgres_flex_metrics" {
+  count = var.observability_enabled && var.enable_postgres_flex && var.enable_postgres_flex_exporter && var.enable_postgres_flex_metrics_scrape && var.deploy_workload ? 1 : 0
+
+  project_id   = local.effective_project_id
+  instance_id  = local.effective_observability_instance_id
+  name         = "${var.ske_cluster_name}-postgres-flex-metrics"
+  metrics_path = "/metrics"
+  targets = [{
+    urls = ["${local.app_fqdn}:${var.postgres_flex_exporter_port}"]
+  }]
+  scheme          = "http"
+  scrape_interval = var.postgres_flex_metrics_scrape_interval
+  scrape_timeout  = var.postgres_flex_metrics_scrape_timeout
 
   depends_on = [terraform_data.workload_endpoint_ready]
 }

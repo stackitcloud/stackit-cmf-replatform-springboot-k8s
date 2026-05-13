@@ -85,6 +85,50 @@
           "refId": "C"
         }
       ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "PostgreSQL Flex Exporter Availability and Connections",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "__PROM_UID__"
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "targets": [
+        {
+          "expr": "max(pg_up) or vector(0)",
+          "legendFormat": "pg_up",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(pg_stat_activity_count) or vector(0)",
+          "legendFormat": "active connections",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "PostgreSQL Flex Transactions (5m)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "__PROM_UID__"
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+      "targets": [
+        {
+          "expr": "sum(increase(pg_stat_database_xact_commit[5m])) or vector(0)",
+          "legendFormat": "commits",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(increase(pg_stat_database_xact_rollback[5m])) or vector(0)",
+          "legendFormat": "rollbacks",
+          "refId": "B"
+        }
+      ]
     }
   ]
 }

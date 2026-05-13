@@ -116,7 +116,7 @@ variable "existing_observability_instance_id" {
   default     = ""
 
   validation {
-    condition = !var.observability_enabled || var.create_observability_instance || trimspace(var.existing_observability_instance_id) != ""
+    condition     = !var.observability_enabled || var.create_observability_instance || trimspace(var.existing_observability_instance_id) != ""
     error_message = "Set existing_observability_instance_id when observability_enabled=true and create_observability_instance=false."
   }
 }
@@ -185,6 +185,184 @@ variable "deploy_workload" {
   type        = bool
   description = "Deploy Spring Boot workload directly via Terraform Kubernetes provider"
   default     = true
+}
+
+variable "enable_postgres_flex" {
+  type        = bool
+  description = "Create and use STACKIT PostgreSQL Flex for the target Spring Boot deployment"
+  default     = false
+}
+
+variable "postgres_flex_instance_name" {
+  type        = string
+  description = "Name of the PostgreSQL Flex instance"
+  default     = "cmf-rpltf-postgres"
+}
+
+variable "postgres_flex_version" {
+  type        = string
+  description = "PostgreSQL Flex version"
+  default     = "17.0"
+}
+
+variable "postgres_flex_backup_schedule" {
+  type        = string
+  description = "Backup schedule for PostgreSQL Flex"
+  default     = "0 2 * * *"
+}
+
+variable "postgres_flex_replicas" {
+  type        = number
+  description = "Number of PostgreSQL Flex replicas"
+  default     = 1
+}
+
+variable "postgres_flex_acl" {
+  type        = list(string)
+  description = "Legacy ACL input; when empty, effective ACL is computed from target app and optional migration CIDRs"
+  default     = []
+}
+
+variable "postgres_flex_target_app_acl_cidrs" {
+  type        = list(string)
+  description = "CIDRs that are allowed to access PostgreSQL Flex from the target application path"
+  default     = []
+
+  validation {
+    condition     = !var.enable_postgres_flex || length(var.postgres_flex_acl) > 0 || length(var.postgres_flex_target_app_acl_cidrs) > 0
+    error_message = "Set postgres_flex_target_app_acl_cidrs (or postgres_flex_acl) when enable_postgres_flex=true."
+  }
+}
+
+variable "postgres_flex_temp_migration_acl_cidrs" {
+  type        = list(string)
+  description = "Optional temporary CIDRs for migration clients that need direct PostgreSQL Flex access"
+  default     = []
+}
+
+variable "include_source_postgres_host_in_temp_acl" {
+  type        = bool
+  description = "If true and source_postgres_host is an IPv4 address, source_postgres_host/32 is added to the temporary migration ACL list"
+  default     = false
+}
+
+variable "postgres_flex_cpu" {
+  type        = number
+  description = "vCPU size of PostgreSQL Flex instance"
+  default     = 1
+}
+
+variable "postgres_flex_ram" {
+  type        = number
+  description = "RAM size (GB) of PostgreSQL Flex instance"
+  default     = 4
+}
+
+variable "postgres_flex_storage_class" {
+  type        = string
+  description = "Storage class for PostgreSQL Flex"
+  default     = "premium-perf6-postgresql"
+}
+
+variable "postgres_flex_storage_size" {
+  type        = number
+  description = "Storage size (GB) for PostgreSQL Flex"
+  default     = 5
+}
+
+variable "postgres_flex_app_username" {
+  type        = string
+  description = "Application username created in PostgreSQL Flex"
+  default     = "springmusic"
+}
+
+variable "postgres_flex_app_roles" {
+  type        = set(string)
+  description = "Roles for the PostgreSQL Flex application user"
+  default     = ["readWrite"]
+}
+
+variable "postgres_flex_target_database" {
+  type        = string
+  description = "Database used by the Spring Boot datasource on PostgreSQL Flex"
+  default     = "postgres"
+}
+
+variable "enable_postgres_flex_exporter" {
+  type        = bool
+  description = "Expose PostgreSQL exporter metrics from the Spring Boot workload for Observability scraping"
+  default     = true
+}
+
+variable "postgres_flex_exporter_port" {
+  type        = number
+  description = "Port of the PostgreSQL exporter sidecar"
+  default     = 9187
+}
+
+variable "enable_postgres_flex_metrics_scrape" {
+  type        = bool
+  description = "Create Observability scrape configuration for PostgreSQL Flex exporter metrics"
+  default     = true
+}
+
+variable "postgres_flex_metrics_scrape_interval" {
+  type        = string
+  description = "Scrape interval for PostgreSQL Flex exporter metrics"
+  default     = "61s"
+}
+
+variable "postgres_flex_metrics_scrape_timeout" {
+  type        = string
+  description = "Scrape timeout for PostgreSQL Flex exporter metrics"
+  default     = "10s"
+}
+
+variable "deploy_postgres_migration_job" {
+  type        = bool
+  description = "Deploy a Kubernetes job that migrates data from source VM PostgreSQL to PostgreSQL Flex"
+  default     = false
+}
+
+variable "source_postgres_host" {
+  type        = string
+  description = "Source VM PostgreSQL hostname or IP for migration"
+  default     = ""
+
+  validation {
+    condition     = !var.deploy_postgres_migration_job || trimspace(var.source_postgres_host) != ""
+    error_message = "Set source_postgres_host when deploy_postgres_migration_job=true."
+  }
+}
+
+variable "source_postgres_port" {
+  type        = number
+  description = "Source VM PostgreSQL port"
+  default     = 5432
+}
+
+variable "source_postgres_database" {
+  type        = string
+  description = "Source VM PostgreSQL database name"
+  default     = "springmusic"
+}
+
+variable "source_postgres_username" {
+  type        = string
+  description = "Source VM PostgreSQL username"
+  default     = "springmusic"
+}
+
+variable "source_postgres_password" {
+  type        = string
+  description = "Source VM PostgreSQL password"
+  default     = ""
+  sensitive   = true
+
+  validation {
+    condition     = !var.deploy_postgres_migration_job || trimspace(var.source_postgres_password) != ""
+    error_message = "Set source_postgres_password when deploy_postgres_migration_job=true."
+  }
 }
 
 variable "k8s_namespace" {

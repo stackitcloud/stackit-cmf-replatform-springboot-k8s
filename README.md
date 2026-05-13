@@ -10,10 +10,12 @@ Runnable replatform example for STACKIT: migrate a Spring Boot workload to SKE w
 - STACKIT Observability instance
 - Spring Boot Deployment + Service (LoadBalancer)
 - Optional Horizontal Pod Autoscaler (HPA) for Spring Boot
+- Optional STACKIT PostgreSQL Flex target database
 - Metrics exporter sidecar on port 9090
 - Observability scrape config for Spring Boot metrics
 - Grafana dashboard import
 - Optional load-generator pod
+- Optional Kubernetes migration job for VM PostgreSQL -> PostgreSQL Flex
 
 ## Prerequisites
 
@@ -56,6 +58,7 @@ Then edit `env.tfvars`.
 - `region`, `availability_zone`
 - `node_pool_machine_type`
 - `springboot_image`
+- `enable_postgres_flex`
 - `enable_springboot_hpa`, `springboot_hpa_*`
 - `enable_load_generator`, `load_profile`
 
@@ -83,6 +86,45 @@ Then apply:
 ```bash
 terraform apply -var-file=env.tfvars
 ```
+
+## PostgreSQL Flex target option
+
+Set the following values in `env.tfvars` to enable a managed database target:
+
+```hcl
+enable_postgres_flex          = true
+postgres_flex_instance_name   = "cmf-rpltf-postgres"
+postgres_flex_app_username    = "springmusic"
+postgres_flex_target_database = "postgres"
+postgres_flex_target_app_acl_cidrs = ["203.0.113.10/32"]
+```
+
+When enabled, Terraform creates PostgreSQL Flex (`stackit_postgresflex_instance` and `stackit_postgresflex_user`) and injects datasource settings into the Spring Boot deployment.
+
+ACL is intentionally strict by default: only CIDRs in `postgres_flex_target_app_acl_cidrs` (or legacy `postgres_flex_acl`) are allowed.
+
+## VM PostgreSQL to PostgreSQL Flex migration job
+
+To migrate source data from the VM-based PostgreSQL (for example from the Rehost setup), enable:
+
+```hcl
+enable_postgres_flex         = true
+deploy_postgres_migration_job = true
+source_postgres_host          = "<rehost-vm-ip-or-dns>"
+source_postgres_port          = 5432
+source_postgres_database      = "springmusic"
+source_postgres_username      = "springmusic"
+source_postgres_password      = "<source-password>"
+include_source_postgres_host_in_temp_acl = true
+```
+
+The migration job runs a `pg_dump` from source and restores the dump into PostgreSQL Flex using `pg_restore`.
+
+If migration is executed from a source-side client that must connect directly to PostgreSQL Flex,
+temporarily add its CIDR via `postgres_flex_temp_migration_acl_cidrs`.
+Terraform output `postgres_flex_source_host_acl_suggestion` provides `source_postgres_host/32` when source host is an IPv4 address.
+
+After migration, remove temporary migration CIDRs and apply again.
 
 ## 2) Deploy
 
@@ -125,6 +167,10 @@ Important outputs:
 - `springboot_hostname`
 - `observability_grafana_url`
 - `project_id`
+- `postgres_flex_host`
+- `postgres_flex_jdbc_url`
+- `postgres_flex_effective_acl_cidrs`
+- `postgres_flex_source_host_acl_suggestion`
 
 ## Troubleshooting
 
